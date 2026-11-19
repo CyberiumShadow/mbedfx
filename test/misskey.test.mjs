@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { route } from '../src/router.ts'
 import { refKey, parseRefKey } from '../src/refkey.ts'
 import { fetchMisskey } from '../src/platforms/misskey/fetch.ts'
+import { OWNER_HOSTS } from './fixtures/hosts.mjs'
 import { effectiveNote, misskeyMedia, normalizeMisskey } from '../src/platforms/misskey/normalize.ts'
 
 /**
@@ -245,8 +246,9 @@ test('THE SSRF GUARD REFUSES OUR OWN ZONE', async () => {
   let called = 0
   globalThis.fetch = async () => { called++; return new Response('{}') }
   try {
+    // The served domains are config (src/hosts.ts), so the owner's are passed in; workers.dev is built in.
     for (const host of ['megapenispoopenfarten.sex', 'a.megapenispoopenfarten.sex', 'x.workers.dev', 'localhost']) {
-      assert.deepEqual(await fetchMisskey({ p: 'mk', host, id: 'abc' }), { ok: false, reason: 'assert_fail' })
+      assert.deepEqual(await fetchMisskey({ p: 'mk', host, id: 'abc' }, { env: OWNER_HOSTS }), { ok: false, reason: 'assert_fail' })
     }
     assert.equal(called, 0, 'and no request was made at all')
   } finally {

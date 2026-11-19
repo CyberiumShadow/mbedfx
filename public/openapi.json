@@ -8,9 +8,7 @@
     "license": { "name": "MIT", "identifier": "MIT" }
   },
   "servers": [
-    { "url": "https://mbedfx.app", "description": "The project's own domain." },
-    { "url": "https://megapenispoopenfarten.sex", "description": "The original zone, retained so links already pasted keep resolving." },
-    { "url": "https://forsen.sex", "description": "A third serving domain on the same worker." }
+    { "url": "https://{{mbedfx:host}}", "description": "Replaced at serve time with every domain this deployment serves the API on (src/hosts.ts apiServers)." }
   ],
   "externalDocs": {
     "url": "https://github.com/shamu4life/mbedfx/blob/main/docs/API.md",
@@ -84,14 +82,14 @@
                           "name": "jack",
                           "handle": "jack",
                           "url": "https://x.com/jack",
-                          "avatar": "https://mbedfx.app/_media/x%3A20/avatar"
+                          "avatar": "https://{{mbedfx:host}}/_media/x%3A20/avatar"
                         },
                         "counts": { "likes": 183000, "reposts": 121000, "replies": 25000 },
                         "media": [
                           {
                             "kind": "video",
-                            "url": "https://mbedfx.app/_media/x%3A20/0",
-                            "poster": "https://mbedfx.app/_media/x%3A20/poster0",
+                            "url": "https://{{mbedfx:host}}/_media/x%3A20/0",
+                            "poster": "https://{{mbedfx:host}}/_media/x%3A20/poster0",
                             "width": 1280,
                             "height": 720,
                             "still": false

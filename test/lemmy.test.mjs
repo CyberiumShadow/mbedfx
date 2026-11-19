@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { route } from '../src/router.ts'
 import { refKey, parseRefKey } from '../src/refkey.ts'
 import { fetchableInstance } from '../src/platforms/lemmy/fetch.ts'
+import { OWNER_HOSTS } from './fixtures/hosts.mjs'
 import {
   actorInstance, communityHandle, lemmyGone, lemmyMedia, normalizeLemmy,
 } from '../src/platforms/lemmy/normalize.ts'
@@ -132,8 +133,9 @@ test('A PRIVATE OR LOOPBACK HOST NEVER EVEN ROUTES — the syntactic half of the
 test('OUR OWN ZONE IS REFUSED — a Worker fetching itself bypasses its own WAF', () => {
   // Cloudflare's default subrequest behaviour re-enters through the edge without the zone's WAF, so
   // the one host that must never be reachable is the one an attacker would most like to aim at.
+  // The served domains are config (src/hosts.ts), so the owner's are passed in; workers.dev is built in.
   for (const h of ['megapenispoopenfarten.sex', 'staging.megapenispoopenfarten.sex', 'x.workers.dev']) {
-    assert.equal(fetchableInstance(h), false, `${h} is ours`)
+    assert.equal(fetchableInstance(h, undefined, OWNER_HOSTS), false, `${h} is ours`)
   }
   assert.equal(fetchableInstance('lemmy.world', 'https://staging.megapenispoopenfarten.sex'), true)
   assert.equal(fetchableInstance('example.test', 'https://example.test'), false, 'the passed origin counts too')

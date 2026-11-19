@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { foldSmoke, healthSummary, cronColo, recordSmoke, HEALTH_KEY, HEALTH_DAYS } from '../src/health.ts'
 import { SMOKE_CHECKS } from '../src/smoke.ts'
 import worker, { handle, smokeWhereReadersAre, SMOKE_RUNNER_NAME } from '../src/worker.ts'
+import { OWNER_HOSTS } from './fixtures/hosts.mjs'
 
 /**
  * THE SCHEDULED CHECK'S MEMORY (src/health.ts) and `/_health`, which publishes it. Added 2026-10-14 when the
@@ -209,7 +210,7 @@ test('/_health WITH NO BUCKET SAYS SO, and a guest domain declines it like every
   const deps = { cache: { async match() {}, async put() {} }, fetchPost: async () => null, resolveShortlink: async () => ({}), resolveRedditShare: async () => null }
   const none = await handle(new Request('https://mbedfx.app/_health'), { AE: { writeDataPoint() {} } }, { waitUntil() {} }, deps)
   assert.equal(none.status, 503)
-  const guest = await handle(new Request('https://hotsinglesnear.you/_health'), { AE: { writeDataPoint() {} }, MEDIA_CACHE: fakeR2() }, { waitUntil() {} }, deps)
+  const guest = await handle(new Request('https://hotsinglesnear.you/_health'), { AE: { writeDataPoint() {} }, MEDIA_CACHE: fakeR2(), ...OWNER_HOSTS }, { waitUntil() {} }, deps)
   assert.equal(guest.status, 404)
   assert.equal(guest.headers.get('x-mbedfx-guest'), null, 'unmarked, so you-stupid serves its own page')
 })

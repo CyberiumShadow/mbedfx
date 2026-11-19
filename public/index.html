@@ -21,17 +21,17 @@
 <meta property="og:title" content="mbedfx: social links that embed properly">
 <meta property="og:description" content="Paste a social post link, get one Discord can actually draw. 17 sites, native extraction, no accounts and nothing to install.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://mbedfx.app/">
+<meta property="og:url" content="https://{{mbedfx:host}}/">
 <meta property="og:site_name" content="mbedfx">
-<meta property="og:image" content="https://mbedfx.app/og.jpg">
+<meta property="og:image" content="https://{{mbedfx:host}}/og.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="mbedfx.app: social links that embed properly">
+<meta property="og:image:alt" content="{{mbedfx:host}}: social links that embed properly">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="mbedfx: social links that embed properly">
 <meta name="twitter:description" content="Paste a social post link, get one Discord can actually draw. 17 sites, native extraction, no accounts.">
-<meta name="twitter:image" content="https://mbedfx.app/og.jpg">
+<meta name="twitter:image" content="https://{{mbedfx:host}}/og.jpg">
 <link rel="icon" href="/favicon.ico">
 <script>
 /* Before first paint, so a stored choice never flashes the other theme first. Deliberately tiny and
@@ -548,17 +548,16 @@ footer .fine { font-size: 12px; opacity: .8; }
         <div>
           <div class="who"><span class="name">mbedfx</span><span class="bot">BOT</span><span class="ts">today</span></div>
           <p>Paste a social link and get back one Discord can actually draw. Swap the site's domain
-             for mbedfx.app and the link still points at the same post. The post is fetched
+             for {{mbedfx:host}} and the link still points at the same post. The post is fetched
              here, not by another fixer.</p>
 
           <div class="tool">
             <div class="toolbar">
               <span class="lbl">Fix a link</span>
               <div class="seg" role="group" aria-label="Which domain to use">
-                <button type="button" data-host="mbedfx.app" aria-pressed="true">mbedfx.app</button>
-                <button type="button" data-host="megapenispoopenfarten.sex" aria-pressed="false">megapenispoopenfarten.sex</button>
-                <button type="button" data-host="sorryifuckedyour.mom" aria-pressed="false">sorryifuckedyour.mom</button>
-                <button type="button" data-host="hotsinglesnear.you" aria-pressed="false">hotsinglesnear.you</button>
+                <!-- Filled at serve time from PUBLIC_HOSTS' source, the HOSTS and GUEST_HOSTS vars
+                     (src/hosts.ts fillSiteTemplate): one button per offered domain, primary first. -->
+                {{mbedfx:host-buttons}}
               </div>
               <!-- Not part of .seg: the domain buttons are a one-of-four choice (the last two are the
                    guest hosts, offered since 2026-10-11; see PUBLIC_HOSTS), this is an independent
@@ -626,10 +625,10 @@ footer .fine { font-size: 12px; opacity: .8; }
           <p class="sub">A post id is meaningless without its server. About one in five bare id
              lookups against a default server returns a real post, just not the right one, so
              there's no default here. Any server's links work.</p>
-          <p style="margin-top:10px">Put mbedfx.app after <code>https://</code>:</p>
-<pre>https://<b>mbedfx.app</b>/mstdn.social/@stux/116994812581955524</pre>
-          <p>Or just type mbedfx.app/ in front of the whole link, one <kbd>Home</kbd> keypress:</p>
-<pre>https://<b>mbedfx.app/</b>https://mstdn.social/@stux/116994812581955524</pre>
+          <p style="margin-top:10px">Put {{mbedfx:host}} after <code>https://</code>:</p>
+<pre>https://<b>{{mbedfx:host}}</b>/mstdn.social/@stux/116994812581955524</pre>
+          <p>Or just type {{mbedfx:host}}/ in front of the whole link, one <kbd>Home</kbd> keypress:</p>
+<pre>https://<b>{{mbedfx:host}}/</b>https://mstdn.social/@stux/116994812581955524</pre>
           <p class="sub">Works for Mastodon, Pleroma, Akkoma, Iceshrimp, Misskey, Sharkey, Lemmy,
              PieFed and PeerTube.</p>
         </div>
@@ -803,15 +802,23 @@ footer .fine { font-size: 12px; opacity: .8; }
  * "*.mbedfx.app is a wildcard, so d.mbedfx.app would have read as its own domain and media-only would
  * compose a second prefix onto it: d.d.mbedfx.app."
  */
-var OUR_HOSTS = ['mbedfx.app', 'megapenispoopenfarten.sex', 'forsen.sex', 'sorryifuckedyour.mom', 'hotsinglesnear.you'];
-var PUBLIC_HOSTS = ['mbedfx.app', 'megapenispoopenfarten.sex', 'sorryifuckedyour.mom', 'hotsinglesnear.you'];
+/*
+ * FILLED IN AT SERVE TIME from wrangler.jsonc's HOSTS, UNLISTED_HOSTS and GUEST_HOSTS vars (src/hosts.ts
+ * fillSiteTemplate), so this file names no deployment's domains and every deployment's page names its
+ * own. OUR_HOSTS is all three in that order, PUBLIC_HOSTS is HOSTS then GUEST_HOSTS, and the first entry
+ * of both is the primary. The names above are the owner's deployment, described as it is configured.
+ */
+var OUR_HOSTS = {{mbedfx:our-hosts}};
+var PUBLIC_HOSTS = {{mbedfx:public-hosts}};
+/** The primary domain: the fallback for an unknown host and the family of an unadvertised one. */
+var PRIMARY_HOST = PUBLIC_HOSTS[0];
 /**
- * THE GUEST HOSTS, the same list as src/guesthost.ts GUEST_HOSTS (this page has no build step and
- * cannot import it, so test/landing-convert.test.mjs compares the two). What this list changes is a
+ * THE GUEST HOSTS, the GUEST_HOSTS var that src/guesthost.ts reads, filled in from the same value at
+ * serve time, so the page and the Worker cannot disagree. What this list changes is a
  * consequence of another Worker owning the domain: a narrower set of paths answered (drawCard's guest
  * line). It no longer changes media only, which is the d. host on every domain since 2026-10-11.
  */
-var GUEST_HOSTS = ['sorryifuckedyour.mom', 'hotsinglesnear.you'];
+var GUEST_HOSTS = {{mbedfx:guest-hosts}};
 
 /**
  * The nesting invariant, asserted where it cannot rot rather than in a comment. A name in
@@ -846,7 +853,7 @@ function mbedfxDefaultHost(hostname) {
   var served = String(hostname == null ? '' : hostname).toLowerCase().replace(/\.$/, '');
   // A Workers preview. Emitted as-is so a link pasted from it reaches the build under test.
   if (/(^|\.)workers\.dev$/.test(served)) {
-    return { host: served, prefix: '', family: 'mbedfx.app', preview: true };
+    return { host: served, prefix: '', family: PRIMARY_HOST, preview: true };
   }
   /**
    * OUR_HOSTS, not PUBLIC_HOSTS: arriving on a served-but-unadvertised domain must still hand out
@@ -857,12 +864,12 @@ function mbedfxDefaultHost(hostname) {
    * onto the domain you clicked, which is the only thing a one-of-several toggle can mean.
    */
   return OUR_HOSTS.indexOf(served) >= 0
-    ? { host: served, prefix: '', family: PUBLIC_HOSTS.indexOf(served) >= 0 ? served : 'mbedfx.app' }
-    : { host: 'mbedfx.app', prefix: '', family: 'mbedfx.app' };
+    ? { host: served, prefix: '', family: PUBLIC_HOSTS.indexOf(served) >= 0 ? served : PRIMARY_HOST }
+    : { host: PRIMARY_HOST, prefix: '', family: PRIMARY_HOST };
 }
 
 function mbedfxConvert(input, host, gallery) {
-  host = host || 'mbedfx.app';
+  host = host || PRIMARY_HOST;
   var raw = String(input == null ? '' : input).trim();
   if (!raw) return { ok: false, kind: 'empty' };
 

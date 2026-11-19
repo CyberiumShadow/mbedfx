@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { handle } from '../src/worker.ts'
 import { refKey } from '../src/refkey.ts'
 import { fetchableInstance, instanceFetchable } from '../src/platforms/fedihost.ts'
+import { OWNER_HOSTS } from './fixtures/hosts.mjs'
 import { fetchMasto } from '../src/platforms/mastoapi/fetch.ts'
 import { fetchLemmy } from '../src/platforms/lemmy/fetch.ts'
 import { getGuestToken, resetGuestToken } from '../src/platforms/twitter/fetch.ts'
@@ -43,7 +44,7 @@ test('a self-hoster declares their own domain in OWN_HOSTS, and subdomains come 
   const env = { OWN_HOSTS: 'embed.example.com' }
   assert.equal(fetchableInstance('embed.example.com', undefined, env), false)
   assert.equal(fetchableInstance('staging.embed.example.com', undefined, env), false,
-    'one apex entry covers every subdomain, exactly as the built-in list does')
+    'one apex entry covers every subdomain, exactly as the configured hosts do')
   assert.equal(fetchableInstance('lemmy.world', undefined, env), true, 'and a real instance is untouched')
 })
 
@@ -57,23 +58,33 @@ test('OWN_HOSTS takes a list in whatever spelling the operator has it in', () =>
   }
 })
 
-test('OWN_HOSTS is ADDITIVE — a set, empty or junk value can never un-block mbedfx own zones', () => {
+test('OWN_HOSTS is ADDITIVE — a set, empty or junk value can never un-block the configured hosts', () => {
   // THE SAFE-DEFAULT ARGUMENT, as a test. A configurable guard whose config can SUBTRACT is a guard
   // one env var away from being absent, and the operator most likely to get the value wrong is the
   // one who has never read fedihost.ts. Every failure mode of this setting is "too strict".
+  //
+  // REWRITTEN when the serving domains moved from a constant in fedihost.ts to the HOSTS vars
+  // (src/hosts.ts): the hosts OWN_HOSTS cannot un-block are now the configured ones, so the env
+  // carries the owner's lists. That HOSTS itself covers every route is test/smoke.test.mjs's job.
   for (const OWN_HOSTS of ['', '   ', 'not a hostname', 'https://', 'other.example', undefined]) {
-    for (const ours of ['mbedfx.app', 'staging.mbedfx.app', 'megapenispoopenfarten.sex', 'forsen.sex']) {
-      assert.equal(fetchableInstance(ours, undefined, { OWN_HOSTS }), false,
+    for (const ours of ['mbedfx.app', 'staging.mbedfx.app', 'megapenispoopenfarten.sex', 'forsen.sex', 'hotsinglesnear.you']) {
+      assert.equal(fetchableInstance(ours, undefined, { ...OWNER_HOSTS, OWN_HOSTS }), false,
         `${ours} must stay refused with OWN_HOSTS=${JSON.stringify(OWN_HOSTS)}`)
     }
   }
 })
 
-test('UNSET is not "wide open": the built-in list, the address guard and the shape check all still stand', () => {
+test('UNSET is not "wide open": workers.dev, the address guard and the shape check all still stand', () => {
   // What an unset OWN_HOSTS actually leaves reachable is ONE host — the operator's own public domain,
   // which resolves to their own public address. It is a misconfiguration, not a route into a network,
   // and saying so precisely is what stops the next reader from either panicking or shrugging.
-  assert.equal(fetchableInstance('mbedfx.app'), false, 'the built-in list needs no config')
+  //
+  // REWRITTEN when the serving domains moved to config. This used to assert mbedfx.app was refused
+  // with no env at all; now no env names no domain, and only `workers.dev` is built in. The owner's
+  // domains are refused because wrangler.jsonc's vars name them, which the second half checks.
+  assert.equal(fetchableInstance('preview-abc.mbedfx.workers.dev'), false, 'preview hosts need no config')
+  assert.equal(fetchableInstance('mbedfx.app', undefined, OWNER_HOSTS), false, 'a configured host is refused')
+  assert.equal(fetchableInstance('d.mbedfx.app', undefined, OWNER_HOSTS), false, 'and every subdomain of one')
   assert.equal(fetchableInstance('127.0.0.1'), false, 'nor does the address guard')
   assert.equal(fetchableInstance('localhost'), false)
   assert.equal(fetchableInstance('[::ffff:127.0.0.1]'), false)
@@ -129,7 +140,7 @@ test('the seam is silent with no resolver, so the Cloudflare path is unchanged',
 
 test('instanceFetchable is the whole gate: shape, own zones, literals, then DNS', async () => {
   assert.equal(await instanceFetchable('lemmy.world'), true)
-  assert.equal(await instanceFetchable('mbedfx.app'), false, 'our own zone')
+  assert.equal(await instanceFetchable('mbedfx.app', { env: OWNER_HOSTS }), false, 'our own zone')
   assert.equal(await instanceFetchable('mstdn.social', { self: 'https://mstdn.social' }), false, 'the request origin')
   assert.equal(await instanceFetchable('nope', {}), false, 'FEDI_HOST shape')
   assert.equal(

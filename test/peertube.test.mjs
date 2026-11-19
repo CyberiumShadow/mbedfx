@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { route } from '../src/router.ts'
 import { refKey, parseRefKey } from '../src/refkey.ts'
 import { fetchPeerTube } from '../src/platforms/peertube/fetch.ts'
+import { OWNER_HOSTS } from './fixtures/hosts.mjs'
 import { normalizePeerTube, peertubeFile, peertubeThumb } from '../src/platforms/peertube/normalize.ts'
 import { proxyableVideoUrl } from '../src/mediaproxy.ts'
 
@@ -221,8 +222,9 @@ test('THE FETCHER ASSERTS ON CONTENT AND REFUSES OUR OWN ZONES', async () => {
     // Our own zones are refused before any request is made.
     let called = 0
     globalThis.fetch = async () => { called++; return json(VIDEO) }
+    // The served domains are config (src/hosts.ts), so the owner's are passed in; workers.dev is built in.
     for (const host of ['mbedfx.app', 'a.mbedfx.app', 'megapenispoopenfarten.sex', 'x.workers.dev']) {
-      assert.deepEqual(await fetchPeerTube({ p: 'pt', host, id: 'vZNcho9kCoVzc8wZwacPtc' }),
+      assert.deepEqual(await fetchPeerTube({ p: 'pt', host, id: 'vZNcho9kCoVzc8wZwacPtc' }, { env: OWNER_HOSTS }),
         { ok: false, reason: 'assert_fail' })
     }
     assert.equal(called, 0, 'and no request was made at all')

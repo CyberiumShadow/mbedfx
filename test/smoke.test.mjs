@@ -2,17 +2,20 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, existsSync } from 'node:fs'
 import { fetchableInstance } from '../src/platforms/fedihost.ts'
-import { GUEST_HOSTS } from '../src/guesthost.ts'
+import { fillSiteTemplate, hostsOf } from '../src/hosts.ts'
 
 /**
- * The zones this project owns and serves. All three are live; see wrangler.jsonc's routes comment.
+ * The zones this deployment owns and serves: HOSTS and UNLISTED_HOSTS from wrangler.jsonc's `vars`.
  *
- * DELIBERATELY NOT DERIVED FROM wrangler.jsonc, even though the SSRF test below reads that file. The
- * check this feeds — "a route is on a zone we own" — becomes vacuous the moment the list of zones we
- * own is read out of the list of routes. Keeping it a separate declaration is the whole mechanism: a
- * route added without a human deciding it belongs here fails, loudly, in a test named for the rule.
+ * STILL NOT DERIVED FROM `routes`, and that is the part that matters. The check this feeds — "a route
+ * is on a zone we own" — becomes vacuous the moment the list of zones we own is read out of the list
+ * of routes. Until the domains moved to config this was a literal here; it is now the `vars` block,
+ * which is still a separate declaration a human has to change, so a route added on its own fails
+ * loudly. Read from the file rather than test/fixtures/hosts.mjs because this checks the config
+ * against itself, and it has to hold for any deployment tracking this repo.
  */
-const OUR_ZONES = ['mbedfx.app', 'megapenispoopenfarten.sex', 'forsen.sex']
+const OUR_ZONES = (h => [...h.listed, ...h.unlisted])(
+  hostsOf(JSON.parse(readFileSync('wrangler.jsonc', 'utf8').replace(/^\s*\/\/.*$/gm, '')).vars))
 
 test('the only runtime dependency is the container helper, isolated from the fetch path', () => {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
@@ -166,13 +169,17 @@ test('EVERY DOMAIN THE PAGE OFFERS IS ONE THE WORKER SERVES — a subset, delibe
    * already use, and the subset rule is otherwise unchanged: a button must still name a domain that
    * reaches this Worker one way or the other.
    */
+    //
+  // REWRITTEN when the domains moved to config: the page's lists are filled from wrangler.jsonc's vars
+  // at serve time (src/hosts.ts), so the page checked is the one this config would serve.
   const cfg = JSON.parse(readFileSync('wrangler.jsonc', 'utf8').replace(/^\s*\/\/.*$/gm, ''))
-  const served = new Set([...(cfg.routes ?? []).map(r => r.pattern.split('/')[0]), ...GUEST_HOSTS])
-  const page = readFileSync('public/index.html', 'utf8')
+  const hosts = hostsOf(cfg.vars)
+  const served = new Set([...(cfg.routes ?? []).map(r => r.pattern.split('/')[0]), ...hosts.guest])
+  const page = fillSiteTemplate(readFileSync('public/index.html', 'utf8'), hosts)
 
-  const m = page.match(/var PUBLIC_HOSTS = \[([^\]]*)\]/)
+  const m = page.match(/var PUBLIC_HOSTS = (\[[^\]]*\])/)
   assert.ok(m, 'the page declares PUBLIC_HOSTS')
-  const offered = m[1].split(',').map(x => x.trim().replace(/^'|'$/g, '')).filter(Boolean)
+  const offered = JSON.parse(m[1])
   assert.ok(offered.length > 0, 'and it offers at least one domain')
   for (const host of offered) {
     assert.ok(served.has(host), `the page offers ${host}, which neither wrangler.jsonc nor GUEST_HOSTS serves`)
@@ -214,10 +221,12 @@ test('EVERY DOMAIN THE WORKER SERVES IS ONE THE PAGE RECOGNISES AS OURS — the 
    * domain's own links.
    */
   const cfg = JSON.parse(readFileSync('wrangler.jsonc', 'utf8').replace(/^\s*\/\/.*$/gm, ''))
+  const hosts = hostsOf(cfg.vars)
   // GUEST_HOSTS too (src/guesthost.ts): they serve cards through another Worker's binding rather than
   // a route here, and a link pasted from one is just as much ours as a link from forsen.sex.
-  const served = [...new Set([...(cfg.routes ?? []).map(r => r.pattern.split('/')[0]), ...GUEST_HOSTS])]
-  const page = readFileSync('public/index.html', 'utf8')
+  const served = [...new Set([...(cfg.routes ?? []).map(r => r.pattern.split('/')[0]), ...hosts.guest])]
+  // The page as this config serves it (src/hosts.ts fillSiteTemplate).
+  const page = fillSiteTemplate(readFileSync('public/index.html', 'utf8'), hosts)
 
   // Lifted the same way test/landing-convert.test.mjs does — see its header for why `new Function`
   // over a committed file in a test is not the vulnerability it resembles.
@@ -226,25 +235,31 @@ test('EVERY DOMAIN THE WORKER SERVES IS ONE THE PAGE RECOGNISES AS OURS — the 
   const { convert, defaultHost } = new Function(
     `${block[1]}; return { convert: mbedfxConvert, defaultHost: mbedfxDefaultHost }`)()
 
-  assert.ok(served.length >= 3, 'this asserts over every served domain, so there must be some')
+  // At least one rather than the owner's three: a deployment tracking this repo may serve one domain.
+  assert.ok(served.length >= 1, 'this asserts over every served domain, so there must be some')
   for (const host of served) {
-    const r = convert(`https://${host}/alice/status/123`, 'mbedfx.app')
+    const r = convert(`https://${host}/alice/status/123`, hosts.listed[0])
     assert.ok(r.ok, `${host} is served by this worker; the page must convert a link from it`)
     assert.equal(r.path, '/alice/status/123',
       `${host} is one of ours, so its path must be re-pointed, not swallowed as an instance name`)
     assert.doesNotMatch(r.note ?? '', /fediverse/i,
       `${host} is our own domain and must never be read as a fediverse instance`)
-    assert.equal(defaultHost(host).host, host,
-      `a visitor arriving on ${host} must be handed ${host} links, not another domain's`)
+    // A routed `d.{zone}` is that zone's media-only host, not a domain of its own (the owner's d. names
+    // ride a wildcard DNS record and never appear in routes; a deployment without one routes d.{zone}
+    // explicitly). Its visitor gets the zone's links, which is the d.d.{host} fix (baff668) and not
+    // the forsen.sex bug this test exists for.
+    const zone = /^d\./.test(host) && served.includes(host.slice(2)) ? host.slice(2) : host
+    assert.equal(defaultHost(host).host, zone,
+      `a visitor arriving on ${host} must be handed ${zone} links, not another domain's`)
   }
 
   // And the nesting that makes both directions expressible at once. The page asserts this itself at
   // parse time (the loop under OUR_HOSTS); this is the same claim from outside, so deleting that loop
   // does not silently delete the invariant.
-  const ours = page.match(/var OUR_HOSTS = \[([^\]]*)\]/)
-  const pub = page.match(/var PUBLIC_HOSTS = \[([^\]]*)\]/)
+  const ours = page.match(/var OUR_HOSTS = (\[[^\]]*\])/)
+  const pub = page.match(/var PUBLIC_HOSTS = (\[[^\]]*\])/)
   assert.ok(ours && pub, 'the page declares OUR_HOSTS and PUBLIC_HOSTS')
-  const list = m2 => m2[1].split(',').map(x => x.trim().replace(/^'|'$/g, '')).filter(Boolean)
+  const list = m2 => JSON.parse(m2[1])
   for (const h of list(pub)) {
     assert.ok(list(ours).includes(h), `PUBLIC_HOSTS must be a subset of OUR_HOSTS; ${h} is not in it`)
   }
@@ -264,18 +279,24 @@ test('EVERY SERVING ZONE IS REFUSED BY THE SSRF GUARD — the coupling wrangler.
    *
    * Asserted through fetchableInstance rather than by reading the constant, so it pins the BEHAVIOUR
    * (including the subdomain rule) rather than the spelling of a private array.
+   *
+   * MORE LOAD-BEARING SINCE THE DOMAINS MOVED TO CONFIG. fedihost.ts no longer carries a built-in
+   * list: it refuses what wrangler.jsonc's vars name, and this test is now the only thing that makes
+   * "every route is refused" true. The guard is handed `cfg.vars`, exactly what the deployed Worker
+   * receives as env, so a route missing from HOSTS / UNLISTED_HOSTS fails here.
    */
   const cfg = JSON.parse(readFileSync('wrangler.jsonc', 'utf8').replace(/^\s*\/\/.*$/gm, ''))
-  // GUEST_HOSTS reach this Worker through you-stupid's service binding, not a route, and fetching one
-  // would loop through that Worker and back here. They are serving zones for this rule.
-  const hosts = [...(cfg.routes ?? []).map(r => r.pattern.split('/')[0]), ...GUEST_HOSTS]
+  const env = cfg.vars ?? {}
+  // GUEST_HOSTS reach this Worker through another Worker's service binding, not a route, and fetching
+  // one would loop through that Worker and back here. They are serving zones for this rule.
+  const hosts = [...(cfg.routes ?? []).map(r => r.pattern.split('/')[0]), ...hostsOf(env).guest]
   for (const host of hosts) {
-    assert.equal(fetchableInstance(host), false, `${host} serves this Worker and must never be fetchable`)
-    assert.equal(fetchableInstance(`sub.${host}`), false, 'and neither may a subdomain of it')
+    assert.equal(fetchableInstance(host, undefined, env), false, `${host} serves this Worker and must never be fetchable`)
+    assert.equal(fetchableInstance(`sub.${host}`, undefined, env), false, 'and neither may a subdomain of it')
   }
   // The guard must still admit ordinary instances, or it would refuse the whole fediverse.
-  assert.equal(fetchableInstance('lemmy.world'), true)
-  assert.equal(fetchableInstance('mstdn.social'), true)
+  assert.equal(fetchableInstance('lemmy.world', undefined, env), true)
+  assert.equal(fetchableInstance('mstdn.social', undefined, env), true)
 })
 
 test('.node-version pins a Node new enough to IMPORT the .ts sources directly', () => {

@@ -436,6 +436,14 @@ export interface Env {
   // depth — the container is only reached over the internal DO binding, never a public route.
   RESOLVER_SECRET?: string
   /**
+   * THE DOMAINS THIS DEPLOYMENT ANSWERS ON, plain `vars` in wrangler.jsonc. src/hosts.ts says what
+   * each list means; the first name in HOSTS is the primary. Unset, the SSRF guard refuses only
+   * `workers.dev` and the request's own origin, and the converter page names the request's host.
+   */
+  HOSTS?: string
+  UNLISTED_HOSTS?: string
+  GUEST_HOSTS?: string
+  /**
    * ===========================================================================================
    * THE THREE SELF-HOSTING SETTINGS. Every one of them is unset on Cloudflare and MUST stay
    * optional: this Worker's own deployment is the case where each default is already correct, and a
@@ -443,7 +451,7 @@ export interface Env {
    * where an operator is told which of them are mandatory for them (the first one is).
    * ===========================================================================================
    *
-   * THE DOMAINS THIS INSTANCE IS SERVED FROM, added to the built-in list in
+   * EXTRA DOMAINS TO REFUSE, added to HOSTS and its siblings in
    * src/platforms/fedihost.ts, which is what stops a fediverse ref from naming US as its instance.
    * Whitespace/comma separated, hostname or origin. ADDITIVE — see FediEnv there for why setting it
    * can only ever make the guard stricter, and why leaving it unset is a misconfiguration rather

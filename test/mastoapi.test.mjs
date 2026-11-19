@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { route } from '../src/router.ts'
 import { refKey, parseRefKey } from '../src/refkey.ts'
 import { fetchMasto } from '../src/platforms/mastoapi/fetch.ts'
+import { OWNER_HOSTS } from './fixtures/hosts.mjs'
 import { effectiveStatus, fullHandle, mastoMedia, normalizeMasto } from '../src/platforms/mastoapi/normalize.ts'
 
 /**
@@ -289,8 +290,9 @@ test('THE SSRF GUARD REFUSES OUR OWN ZONE AND ANY MALFORMED HOST', async () => {
   let called = 0
   globalThis.fetch = async () => { called++; return new Response('{}', { headers: { 'content-type': 'application/json' } }) }
   try {
+    // The served domains are config (src/hosts.ts), so the owner's are passed in; workers.dev is built in.
     for (const host of ['megapenispoopenfarten.sex', 'a.megapenispoopenfarten.sex', 'x.workers.dev']) {
-      assert.deepEqual(await fetchMasto({ p: 'ms', host, id: '1' }), { ok: false, reason: 'assert_fail' })
+      assert.deepEqual(await fetchMasto({ p: 'ms', host, id: '1' }, { env: OWNER_HOSTS }), { ok: false, reason: 'assert_fail' })
     }
     assert.equal(called, 0, 'and no request was made at all')
   } finally {

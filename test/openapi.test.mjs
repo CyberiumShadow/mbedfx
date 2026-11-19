@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 import { handle } from '../src/worker.ts'
 import { route } from '../src/router.ts'
 import { RESP_TTL } from '../src/cache.ts'
+import { apiServers, hostsOf } from '../src/hosts.ts'
+import { OWNER_HOSTS, wranglerConfig } from './fixtures/hosts.mjs'
 
 /**
  * public/openapi.json — THE PUBLISHED SPEC, HELD AGAINST THE CODE IT DESCRIBES.
@@ -209,8 +211,19 @@ test('THE SPEC IS SERVED FROM A PATH THE ROUTER ANSWERS — a document nothing r
   assert.equal(route(new URL(`${ORIGIN}${path}`)).kind, 'site',
     `${path} must be an allowlisted asset path, or the published url 404s`)
 
-  const res = await handle(new Request(`${ORIGIN}${path}`), envWith(), ctx, depsFor(null))
-  assert.equal(await res.text(), `asset:${path}`, 'the worker must forward it to the asset binding')
+  // The binding answers with the committed file, and the worker fills in this deployment's domains
+  // (src/hosts.ts): the placeholder is gone, and `servers` is the configured hosts, guests left out.
+  let asked = null
+  const assets = { async fetch(req) { asked = new URL(req.url).pathname; return new Response(readFileSync('public/openapi.json', 'utf8')) } }
+  const res = await handle(new Request(`${ORIGIN}${path}`), envWith({ ASSETS: assets, ...OWNER_HOSTS }), ctx, depsFor(null))
+  assert.equal(asked, path, 'the worker must forward it to the asset binding')
+  const text = await res.text()
+  assert.doesNotMatch(text, /\{\{mbedfx:/, 'every placeholder is filled before the spec leaves the worker')
+  const served = JSON.parse(text)
+  assert.deepEqual(served.servers.map(s => s.url),
+    ['https://mbedfx.app', 'https://megapenispoopenfarten.sex', 'https://forsen.sex'],
+    'the owner\'s three serving domains, in config order, and never a guest host (they decline `api`)')
+  assert.equal(res.headers.get('etag'), null, 'the etag described the unfilled file')
 
   // And the file the binding serves is this one: public/ is the asset directory in wrangler.jsonc.
   assert.equal(SPEC.openapi.startsWith('3.1'), true, `OpenAPI 3.1 is what the ["string","null"] type spelling needs, got ${SPEC.openapi}`)
@@ -492,11 +505,19 @@ test('THE SERVERS ARE HOSTS THIS WORKER IS ROUTED TO', () => {
    * array is the DESIRED STATE — every deploy reconciles Cloudflare to it — which makes it the right
    * thing to check against; that it is not an observation of the live edge is the limit of this test.
    */
-  const cfg = JSON.parse(readFileSync('wrangler.jsonc', 'utf8').replace(/^\s*\/\/.*$/gm, ''))
+  //
+  // REWRITTEN when the domains moved to config. The committed file carries one placeholder server and
+  // the worker replaces the list at serve time (src/hosts.ts apiServers), so what is checked against
+  // routes is the list THIS config would publish, not the file's literal.
+  const cfg = wranglerConfig()
   const routed = cfg.routes.map(r => r.pattern)
-  for (const s of SPEC.servers) {
+  const servers = apiServers(hostsOf(cfg.vars))
+  assert.ok(servers.length > 0, 'the config names at least one host to publish')
+  for (const s of servers) {
     assert.ok(routed.includes(new URL(s.url).hostname),
       `${s.url} is not in wrangler.jsonc's routes — a base url nothing serves`)
     assert.ok(s.description, 'each server needs a line saying what it is')
   }
+  assert.deepEqual(SPEC.servers.map(s => s.url), ['https://{{mbedfx:host}}'],
+    'the committed spec names no deployment; its servers are filled in when served')
 })

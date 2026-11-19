@@ -1,6 +1,6 @@
 import { FEDI_HOST } from '../refkey.ts'
 import { blockedHost, blockedResolvedHost, type HostResolver } from '../netguard.ts'
-import { GUEST_HOSTS } from '../guesthost.ts'
+import { declaredHosts, hostsOf, servedHosts, type HostsEnv } from '../hosts.ts'
 
 /**
  * THE SSRF BOUNDARY SHARED BY EVERY FEDIVERSE CLIENT, and every clause is load-bearing. The host
@@ -61,35 +61,38 @@ export const MAX_BODY = 512 * 1024
 /**
  * Hosts this Worker is served from, which it must never be induced to fetch. See clause 2.
  *
- * EVERY SERVING DOMAIN MUST BE LISTED, and adding one to wrangler.jsonc without adding it here is a
+ * EVERY SERVING DOMAIN MUST BE REFUSED, and a route in wrangler.jsonc that is not refused here is a
  * silent SSRF hole rather than a cosmetic omission: a fediverse ref names its own origin, so
  * `/{our-own-host}/post/1` would make the Worker fetch itself through the edge — the one request
  * clause 2 exists to refuse. The `.endsWith('.' + h)` test below covers every subdomain, so a bare
  * apex entry is enough per zone.
  *
- * mbedfx.app was added 2026-07-30 alongside the original domain, which is retained: links already
- * pasted in Discord keep resolving, so both are genuinely serving and both must be refused here.
+ * THE SERVING DOMAINS COME FROM CONFIG, not from this file (src/hosts.ts): every name in HOSTS,
+ * UNLISTED_HOSTS and GUEST_HOSTS is refused. Guest hosts are in because fetching one reaches the
+ * Worker that owns it, which hands the path back here; src/guesthost.ts has the rest. Only
+ * `workers.dev` stays built in, because no deployment declares its preview hostnames.
  *
- * GUEST_HOSTS are spread in because this Worker serves embeds on them too, through another Worker's
- * service binding rather than a route of its own. Fetching one would reach that Worker, which hands
- * the path back here; src/guesthost.ts has the rest.
+ * THAT REVERSES "CONFIG CANNOT SUBTRACT" for these names, and the guarantee it gave now lives in a
+ * test: test/smoke.test.mjs fails when a `routes` pattern in wrangler.jsonc is not covered by HOSTS
+ * or UNLISTED_HOSTS. Without that test, a route added on its own is fetchable, which is the hole
+ * above. Moved to config so a second deployment tracking this repo names none of the owner's domains.
  */
-const OWN_HOSTS = ['mbedfx.app', 'megapenispoopenfarten.sex', 'forsen.sex', 'workers.dev', ...GUEST_HOSTS]
+const BUILT_IN_HOSTS = ['workers.dev']
 
 /**
- * The two settings a fediverse fetch reads off the environment. Structural rather than `Env` so this
- * file keeps importing nothing but refkey.ts, netguard.ts and guesthost.ts's host list, and so a test
+ * The settings a fediverse fetch reads off the environment. Structural rather than `Env` so this
+ * file keeps importing nothing but refkey.ts, netguard.ts and hosts.ts, and so a test
  * can pass `{}`.
  */
-export interface FediEnv {
+export interface FediEnv extends HostsEnv {
   /**
-   * THE SELF-HOSTER'S OWN DOMAINS, added to OWN_HOSTS above. Whitespace- or comma-separated; a bare
+   * EXTRA DOMAINS TO REFUSE, added to the configured hosts above. Whitespace- or comma-separated; a bare
    * hostname or a full origin (`https://embed.example.com`) both work, because an operator copying
    * the value out of their own config will paste whichever they have.
    *
    * ADDITIVE, NEVER A REPLACEMENT, and that is the whole answer to "what is the safe default":
    *
-   *   - UNSET is not "wide open". The built-in list still stands, the address guard (clause 7)
+   *   - UNSET is not "wide open". The configured hosts still stand, the address guard (clause 7)
    *     still refuses every private destination, and FEDI_HOST still refuses IP literals. What an
    *     unset value leaves open is exactly ONE host: the operator's own public domain, which
    *     resolves to their own public address. The worst case there is a single self-request that
@@ -122,26 +125,6 @@ export interface InstanceGuard {
   env?: FediEnv
 }
 
-/** `a.example, https://b.example` -> ['a.example', 'b.example']. Total: junk contributes nothing. */
-function declaredHosts(list?: string): string[] {
-  if (!list) return []
-  const out: string[] = []
-  for (const raw of list.split(/[\s,]+/)) {
-    if (!raw) continue
-    const t = raw.trim().toLowerCase().replace(/\.$/, '')
-    if (t.includes('/') || t.includes('@')) {
-      try {
-        out.push(new URL(t.includes('//') ? t : `https://${t}`).hostname.replace(/\.$/, ''))
-      } catch {
-        // Unparseable: contributes nothing. It cannot ADMIT a host, so ignoring it is safe.
-      }
-    } else {
-      out.push(t.replace(/^\./, ''))
-    }
-  }
-  return out.filter(Boolean)
-}
-
 /**
  * THE PURE HALF of the gate: shape, our own zones, and every private destination that can be read
  * off the hostname TEXT. Sync, total, and callable before any I/O is spent.
@@ -155,7 +138,7 @@ export function fetchableInstance(host: string, self?: string, env?: FediEnv): b
   // deliberately not left to it: this is the check that survives someone widening the regex to allow
   // a port, a numeric label, or an IDN, none of which look like they touch SSRF.
   if (blockedHost(host)) return false
-  const own = [...OWN_HOSTS, ...declaredHosts(env?.OWN_HOSTS)]
+  const own = [...BUILT_IN_HOSTS, ...servedHosts(hostsOf(env)), ...declaredHosts(env?.OWN_HOSTS)]
   if (self) {
     try {
       own.push(new URL(self).hostname.toLowerCase())

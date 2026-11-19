@@ -1,7 +1,11 @@
 import type { Route } from './types.ts'
+import { hostsOf, type HostsEnv } from './hosts.ts'
 
 /**
  * GUEST HOSTS — domains another Worker owns, where mbedfx answers only the embed paths.
+ *
+ * WHICH DOMAINS ARE GUESTS IS THE DEPLOYMENT'S GUEST_HOSTS var (src/hosts.ts). The owner's two are
+ * described below; a deployment that sets none has no guest hosts and this gate never fires.
  *
  * sorryifuckedyour.mom and hotsinglesnear.you are custom domains of the owner's `you-stupid` Worker,
  * which serves a dating-site page at `/` and its own files under it. Added 2026-10-11 at the owner's
@@ -43,7 +47,7 @@ import type { Route } from './types.ts'
  * unmarked, and the visitor sees exactly what they saw before. It also makes the two deploys
  * independent of order.
  *
- * EVERY GUEST HOST IS ALSO REFUSED BY THE SSRF GUARD (fedihost.ts spreads this list into OWN_HOSTS).
+ * EVERY GUEST HOST IS ALSO REFUSED BY THE SSRF GUARD (fedihost.ts refuses every configured host).
  * A fediverse ref names its own origin, and `/hotsinglesnear.you/post/1` would otherwise fetch
  * you-stupid, which hands the leftover path straight back here: a loop through two Workers instead
  * of the one self-fetch that guard was written for.
@@ -57,21 +61,23 @@ import type { Route } from './types.ts'
  * only file spelling here; it is a post route on every host and still works.
  *
  * THE CONVERTER OFFERS BOTH AS DOMAIN BUTTONS since 2026-10-11 (owner's call; forsen.sex stays
- * recognised and not offered). public/index.html keeps its own copy of this list (GUEST_HOSTS; it has no
- * build step, and test/landing-convert.test.mjs holds the two equal), and its media-only box emits `d.`
+ * recognised and not offered). public/index.html has its GUEST_HOSTS filled in from the same var at
+ * serve time (src/hosts.ts fillSiteTemplate), so the two cannot disagree, and its media-only box emits `d.`
  * on them as on every domain. It can hand out a path that guestServes declines, a bare `/{handle}` above
  * all, which here is the other site's page; /_card echoes guestServes as `guestDeclines` so the preview
  * can say so without a second copy of the switch below.
  */
-export const GUEST_HOSTS = ['sorryifuckedyour.mom', 'hotsinglesnear.you']
 
 /** The response header you-stupid reads. Value `served`. See the contract above. */
 export const GUEST_MARK = 'x-mbedfx-guest'
 
-/** A guest host or any subdomain of one. Anchored, so `nothotsinglesnear.you` is not one. */
-export function isGuestHost(hostname: string): boolean {
+/**
+ * A guest host or any subdomain of one. Anchored, so `nothotsinglesnear.you` is not one. The list is
+ * the deployment's GUEST_HOSTS var (src/hosts.ts), so a deployment with no guests has none here.
+ */
+export function isGuestHost(hostname: string, env?: HostsEnv): boolean {
   const h = hostname.toLowerCase().replace(/\.$/, '')
-  return GUEST_HOSTS.some(g => h === g || h.endsWith(`.${g}`))
+  return hostsOf(env).guest.some(g => h === g || h.endsWith(`.${g}`))
 }
 
 /**

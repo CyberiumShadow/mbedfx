@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { route } from '../src/router.ts'
-import { GUEST_HOSTS, guestServes } from '../src/guesthost.ts'
+import { guestServes } from '../src/guesthost.ts'
+import { GUEST_HOSTS, ownerPage } from './fixtures/hosts.mjs'
 
 /**
  * THE LANDING PAGE IS TESTED AGAINST THE ROUTER, not against my memory of the router.
@@ -31,7 +32,13 @@ import { GUEST_HOSTS, guestServes } from '../src/guesthost.ts'
  * make a test prettier is a worse trade than evaluating our own committed file here.
  */
 
-const HTML = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8')
+/**
+ * THE PAGE AS THE OWNER'S DEPLOYMENT SERVES IT. public/index.html carries `{{mbedfx:…}}` placeholders
+ * where its domains go, filled per deployment at serve time (src/hosts.ts fillSiteTemplate), so the
+ * raw file is not a page anyone receives. Filled with the fixture rather than wrangler.jsonc so these
+ * assertions about the owner's buttons, guest hosts and forsen.sex hold on any deployment's build.
+ */
+const HTML = ownerPage()
 
 /** Lift the pure-logic block. Its id is a contract between the page and this file. */
 function loadConverter() {

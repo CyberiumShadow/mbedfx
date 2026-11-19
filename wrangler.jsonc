@@ -223,10 +223,10 @@
   // resolving only while its host does. Retiring it is a later, separate decision — and a safe one
   // once traffic has moved, which the AE counters can show.
   //
-  // A NEW SERVING DOMAIN MUST ALSO BE ADDED TO src/platforms/fedihost.ts's OWN_HOSTS. Adding a route
+  // A NEW SERVING DOMAIN MUST ALSO BE ADDED TO `vars` BELOW (HOSTS or UNLISTED_HOSTS). Adding a route
   // here alone is a silent SSRF hole: a fediverse ref names its own origin, so /{our-host}/post/1
-  // would induce the Worker to fetch itself through the edge. The two lists are coupled and nothing
-  // enforces it but this comment and the test that pins them together.
+  // would induce the Worker to fetch itself through the edge, and fedihost.ts refuses only the
+  // configured hosts. test/smoke.test.mjs fails when a route here is not covered by those two vars.
   //
   // TWO MORE HOSTS SERVE CARDS AND ARE DELIBERATELY NOT HERE: sorryifuckedyour.mom and
   // hotsinglesnear.you (src/guesthost.ts, 2026-10-11), nor their d. names. All four are custom domains
@@ -258,14 +258,29 @@
     // the container on your own machine, which is the wrong IP for anything YouTube gates. Merge it
     // and measure production, and confirm `wrangler containers info` shows a NEW image digest before
     // believing the result. See the YouTube 403 entry in docs/CHANGELOG.md.
-    { "pattern": "mbedfx.app", "custom_domain": true },
-    { "pattern": "megapenispoopenfarten.sex", "custom_domain": true },
-    // forsen.sex, added 2026-08-03. IT WAS ALREADY LIVE and kept disappearing, which is the lesson
-    // worth recording: this array is the DESIRED STATE, not a starting point. Every deploy reconciles
-    // Cloudflare to match it, so a custom domain added in the dashboard survives exactly until the
-    // next merge — and merges are the deploy here. A domain that is not in this file does not exist.
-    { "pattern": "forsen.sex", "custom_domain": true }
+    { "pattern": "ietai.ga", "custom_domain": true },
+    // The media-only host. The converter's "media only" box emits d.{host} links, and handle() reads
+    // the `d.` off the hostname (worker.ts DIRECT_MEDIA_HOST); without this route those links have no
+    // DNS and are dead.
+    { "pattern": "d.ietai.ga", "custom_domain": true }
   ],
+  // THE DOMAINS, STATED ONCE. The SSRF guard, the guest gate, the converter page's lists, buttons and
+  // meta tags, openapi.json's servers and the smoke check's origin all read these (src/hosts.ts has
+  // what each list means). A deployment that tracks this repo changes these three strings and `routes`.
+  // The Reddit User-Agents still name the owner's site and are not read from here.
+  //
+  // HOSTS is served by `routes` and offered as a button, primary first. UNLISTED_HOSTS is served and
+  // recognised but never offered. GUEST_HOSTS is another Worker's domains that reach this one through
+  // its service binding, and must never appear in `routes` (see the routes comment above).
+  //
+  // PLAIN vars, not secrets, so they are visible in the dashboard and in this file. A deploy replaces
+  // the Worker's vars with exactly this block, so a value edited in the dashboard lasts only until the
+  // next merge. Change it here.
+  "vars": {
+    "HOSTS": "ietai.ga",
+    "UNLISTED_HOSTS": "",
+    "GUEST_HOSTS": ""
+  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

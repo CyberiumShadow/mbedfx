@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { ownerPage } from './fixtures/hosts.mjs'
 import {
   MUX_FIRST_ATTEMPT_MS, MUX_FIRST_ATTEMPT_PAGE_TOTAL_MS, MUX_FIRST_ATTEMPT_TRACKS_MS,
   MUX_PAGE_WALL_MS, MUX_TOTAL_HORIZON_MS,
@@ -22,7 +23,8 @@ import {
  * way test/prep.test.mjs parses the Route union rather than re-typing it.
  */
 
-const HTML = readFileSync('public/index.html', 'utf8')
+// The page as the owner's deployment serves it: the committed file has domain placeholders (src/hosts.ts).
+const HTML = ownerPage()
 const num = (name) => {
   const m = HTML.match(new RegExp(`var ${name} = (\\d+);`))
   assert.ok(m, `${name} must exist in public/index.html`)
@@ -141,9 +143,10 @@ test('THE PAGE STILL CARRIES NO EM DASH AND NO SECOND PERSON in the new copy', (
   // became domain buttons that day (owner's call), so hotsinglesnear.you is in visible markup and not
   // only in the two host-list lines this used to exempt. Every hostname the page lists in OUR_HOSTS is
   // a name, not the page talking, and is stripped wherever it appears; every other sentence is checked.
-  const ours = HTML.match(/var OUR_HOSTS = \[([^\]]*)\]/)
+  // The list is JSON since the domains moved to config: fillSiteTemplate writes it with JSON.stringify.
+  const ours = HTML.match(/var OUR_HOSTS = (\[[^\]]*\])/)
   assert.ok(ours, 'the page declares OUR_HOSTS')
-  const names = ours[1].split(',').map(x => x.trim().replace(/^'|'$/g, '')).filter(Boolean)
+  const names = JSON.parse(ours[1])
   assert.ok(names.length > 0 && names.every(h => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h)),
     'only whole dotted hostnames are excused, never a bare word like "you"')
   let body = HTML.slice(HTML.indexOf('<body'))

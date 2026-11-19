@@ -2,6 +2,7 @@ import type { ClientClass, GalleryMode, Media, MuxJob, Platform, Post, PostRef, 
 import { classify } from './classify.ts'
 import { route } from './router.ts'
 import { GUEST_MARK, guestDeclined, guestServes, isGuestHost } from './guesthost.ts'
+import { apiServers, fillSiteTemplate, hostsOf, primaryHost } from './hosts.ts'
 import { render } from './render/index.ts'
 import { redirect } from './render/fail.ts'
 import { toMastodonStatus, toOEmbed } from './render/mastodon.ts'
@@ -5424,12 +5425,46 @@ async function serveDirectMedia(
  * this file: a throw reaches the guest Worker unmarked, and that Worker serves its own page.
  */
 export async function handle(req: Request, env: Env, ctx: ExecutionContext, d: Deps): Promise<Response> {
-  if (!isGuestHost(new URL(req.url).hostname)) return serve(req, env, ctx, d)
+  if (!isGuestHost(new URL(req.url).hostname, env)) return serve(req, env, ctx, d)
   if (!guestServes(route(new URL(req.url)))) return guestDeclined()
   const res = await serve(req, env, ctx, d)
   const marked = new Response(res.body, res)
   marked.headers.set(GUEST_MARK, 'served')
   return marked
+}
+
+/** The two files in public/ that carry `{{mbedfx:…}}` domain placeholders. */
+const SITE_TEMPLATES = new Set(['/', '/index.html', '/openapi.json'])
+
+/**
+ * THE FRONT DOOR, with this deployment's domains filled in (src/hosts.ts says why it is done here and
+ * not in the browser). Every other site path is the static file as it always was.
+ *
+ * THE TEMPLATE IS ASKED FOR WITH A PLAIN GET. Passing the visitor's request through would forward
+ * If-None-Match, and ASSETS would answer 304 against the etag of the UNFILLED file. The etag and
+ * length are dropped from the answer for the same reason: both describe bytes nobody is sent.
+ * Anything but a 200 (a redirect from /index.html, a missing file) goes back untouched.
+ */
+async function serveSite(req: Request, env: Env, path: string): Promise<Response> {
+  if (!SITE_TEMPLATES.has(path)) return env.ASSETS.fetch(req)
+  const res = await env.ASSETS.fetch(new Request(req.url))
+  if (res.status !== 200) return res
+  const hosts = hostsOf(env)
+  const self = new URL(req.url).hostname
+  let body = fillSiteTemplate(await res.text(), hosts, self)
+  if (path === '/openapi.json') {
+    // A spec that does not parse is served as filled text rather than as a 500: the servers line is
+    // then the placeholder's, which is wrong, but the rest of the document still reads.
+    try {
+      const spec = JSON.parse(body) as { servers?: unknown }
+      spec.servers = apiServers(hosts, self)
+      body = JSON.stringify(spec, null, 2) + '\n'
+    } catch { /* see above */ }
+  }
+  const headers = new Headers(res.headers)
+  headers.delete('content-length')
+  headers.delete('etag')
+  return new Response(req.method === 'HEAD' ? null : body, { status: 200, headers })
 }
 
 async function serve(req: Request, env: Env, ctx: ExecutionContext, d: Deps): Promise<Response> {
@@ -5976,7 +6011,7 @@ async function serve(req: Request, env: Env, ctx: ExecutionContext, d: Deps): Pr
 
   switch (r.kind) {
     case 'site':
-      return env.ASSETS.fetch(req)
+      return serveSite(req, env, r.path)
 
     case 'notfound':
       count(env, 'none', 'notfound', client)
@@ -7198,7 +7233,10 @@ export type ScheduledSmoke = { results: SmokeResult[]; colo: string | null }
 export async function scheduledSmoke(env: Env, ctx: ExecutionContext, d: Deps): Promise<ScheduledSmoke> {
   // Asked beside the checks rather than after them, so the colo costs this run no time of its own.
   const colo = cronColo()
-  const results = await runSmoke('https://mbedfx.app', u => handle(new Request(u, {
+  // The primary domain, so the cards the checks render carry the urls a reader would get. None
+  // configured is a bare `wrangler dev`, and `.invalid` can never be mistaken for a real host.
+  const origin = `https://${primaryHost(hostsOf(env)) ?? 'smoke.invalid'}`
+  const results = await runSmoke(origin, u => handle(new Request(u, {
     headers: { 'user-agent': 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)' },
   }), env, ctx, d))
   return { results, colo: await colo }

@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { handle } from '../src/worker.ts'
-import { GUEST_HOSTS, GUEST_MARK, guestServes, isGuestHost } from '../src/guesthost.ts'
+import { GUEST_MARK, guestServes, isGuestHost } from '../src/guesthost.ts'
+import { hostsOf } from '../src/hosts.ts'
+import { GUEST_HOSTS, OWNER_HOSTS, wranglerConfig } from './fixtures/hosts.mjs'
 import { route } from '../src/router.ts'
 
 /**
@@ -14,6 +15,9 @@ import { route } from '../src/router.ts'
  *
  * Every request here goes through handle(), the same entry the binding reaches. No network: the post
  * is a stub, and ASSETS throws, because a guest host must never be served mbedfx's own files.
+ *
+ * Which hosts are guests is configuration now (the GUEST_HOSTS var, src/hosts.ts), so every env here
+ * carries the owner's lists from test/fixtures/hosts.mjs.
  */
 
 const GUEST = 'https://hotsinglesnear.you'
@@ -44,6 +48,7 @@ const env = (assets = async () => { throw new Error('ASSETS must not be reached 
   AE: { writeDataPoint() {} },
   ASSETS: { fetch: assets },
   TRANSLATE_GOOGLE: 'off',
+  ...OWNER_HOSTS,
 })
 
 const deps = (fetchPost = async () => jack()) => ({
@@ -184,13 +189,26 @@ test('a guest host is matched on whole labels, so a lookalike domain is not one'
    * fedihost.ts uses.
    */
   for (const h of GUEST_HOSTS) {
-    assert.equal(isGuestHost(h), true)
-    assert.equal(isGuestHost(`www.${h}`), true, 'a subdomain belongs to the same Worker')
-    assert.equal(isGuestHost(h.toUpperCase() + '.'), true, 'case and a trailing dot are not a different host')
-    assert.equal(isGuestHost(`not${h}`), false)
-    assert.equal(isGuestHost(`${h}.example.com`), false)
+    assert.equal(isGuestHost(h, OWNER_HOSTS), true)
+    assert.equal(isGuestHost(`www.${h}`, OWNER_HOSTS), true, 'a subdomain belongs to the same Worker')
+    assert.equal(isGuestHost(h.toUpperCase() + '.', OWNER_HOSTS), true, 'case and a trailing dot are not a different host')
+    assert.equal(isGuestHost(`not${h}`, OWNER_HOSTS), false)
+    assert.equal(isGuestHost(`${h}.example.com`, OWNER_HOSTS), false)
   }
-  assert.equal(isGuestHost('mbedfx.app'), false)
+  assert.equal(isGuestHost('mbedfx.app', OWNER_HOSTS), false)
+})
+
+test('a deployment that names no guest hosts has none, so the gate never declines anything', () => {
+  /**
+   * The guest list used to be a constant, so every deployment of this code declined `/` on the owner's
+   * two guest domains. Now it is the GUEST_HOSTS var, and a deployment without one must treat every
+   * host as its own: a leftover default here would decline a second deployment's front door if it
+   * ever shared a name, and would put the owner's domains back into that deployment's behaviour.
+   */
+  for (const h of [...GUEST_HOSTS, 'mbedfx.app', 'embed.example.com']) {
+    assert.equal(isGuestHost(h), false, `${h} with no env`)
+    assert.equal(isGuestHost(h, { HOSTS: 'embed.example.com' }), false, `${h} with no GUEST_HOSTS`)
+  }
 })
 
 test('a guest host is never claimed as a route here, because another Worker owns it', () => {
@@ -199,9 +217,11 @@ test('a guest host is never claimed as a route here, because another Worker owns
    * every deploy. Listing a guest host there would try to move the domain off you-stupid, taking the
    * owner's site down with it. The binding is how these hosts reach this Worker, and the only way.
    */
-  const cfg = JSON.parse(readFileSync('wrangler.jsonc', 'utf8').replace(/^\s*\/\/.*$/gm, ''))
+  // REWRITTEN when the list moved to config: the guests checked are the ones wrangler.jsonc itself
+  // declares, so this holds for whichever deployment's file it reads, not only the owner's.
+  const cfg = wranglerConfig()
   const claimed = (cfg.routes ?? []).map(r => r.pattern.split('/')[0])
-  for (const g of GUEST_HOSTS) {
+  for (const g of hostsOf(cfg.vars).guest) {
     assert.ok(!claimed.some(h => h === g || h.endsWith(`.${g}`)), `${g} belongs to you-stupid, not to wrangler.jsonc`)
   }
 })
