@@ -154,7 +154,7 @@
     //
     // Renaming it for tidiness means deleting the application and letting the DO re-attach, which
     // re-provisions every container instance. Not worth it for a string only the dashboard shows.
-    { "name": "fxeverything-mediaresolver", "class_name": "MediaResolver", "image": "./container/Dockerfile", "max_instances": 10, "instance_type": "standard-2" }
+    { "name": "fxeverything-mediaresolver", "class_name": "MediaResolver", "image": "./container/Dockerfile", "max_instances": 10, "instance_type": "basic" }
   ],
   // MUX_RUNNER is a PLAIN Durable Object, not a container — it holds no image and runs no process. Its
   // whole job is to own an ALARM, because an alarm handler gets 15 minutes of wall clock where
